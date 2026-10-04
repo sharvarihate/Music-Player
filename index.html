@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Music Player | CodeAlpha</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { min-height: 100vh; display: grid; place-items: center; padding: 16px;
+         background: #14121f; color: #f1eefc; font-family: Arial, sans-serif; }
+  .player { width: 100%; max-width: 380px; padding: 28px 24px; background: #1f1b33;
+            border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,.45); text-align: center; }
+  .cover { width: 180px; height: 180px; margin: 0 auto 20px; border-radius: 50%;
+           background: conic-gradient(#7c5cff, #ff7a59, #7c5cff); display: grid; place-items: center;
+           animation: spin 12s linear infinite paused; }
+  .cover.playing { animation-play-state: running; }
+  .cover div { width: 44px; height: 44px; border-radius: 50%; background: #1f1b33; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  #artist { color: #9a94b8; }
+  .times { display: flex; justify-content: space-between; font-size: .8rem; color: #9a94b8; margin: 6px 0 14px; }
+  input[type=range] { width: 100%; accent-color: #ff7a59; cursor: pointer; }
+  #progress { margin-top: 20px; }
+  .controls { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 6px 0 14px; }
+  button { border: 0; background: none; color: #f1eefc; font-size: 1.4rem; cursor: pointer;
+           padding: 8px; border-radius: 50%; transition: transform .15s, color .15s; }
+  button:hover { transform: scale(1.12); color: #ff7a59; }
+  #play { width: 60px; height: 60px; background: #ff7a59; color: #fff; }
+  #play:hover { color: #fff; }
+  #auto.on { color: #ff7a59; }
+  .vol { width: 60%; margin: 0 auto 18px; }
+  ul { list-style: none; text-align: left; max-height: 180px; overflow-y: auto; }
+  li { padding: 10px 12px; border-radius: 10px; cursor: pointer; color: #9a94b8; transition: background .2s; }
+  li small { display: block; font-size: .78rem; }
+  li:hover { background: rgba(255,255,255,.07); }
+  li.active { background: rgba(255,122,89,.15); color: #ff7a59; }
+  #msg { font-size: .8rem; color: #ffb199; min-height: 1em; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="player">
+  <div class="cover" id="cover"><div></div></div>
+  <h1 id="title">Song title</h1>
+  <p id="artist">Artist</p>
+
+  <input type="range" id="progress" min="0" max="100" value="0" step="0.1">
+  <div class="times"><span id="current">0:00</span><span id="duration">0:00</span></div>
+
+  <div class="controls">
+    <button id="auto" class="on" title="Autoplay on/off">⟳</button>
+    <button id="prev">⏮</button>
+    <button id="play">▶</button>
+    <button id="next">⏭</button>
+    <button id="mute">🔊</button>
+  </div>
+
+  <div class="vol"><input type="range" id="volume" min="0" max="1" step="0.01" value="0.7"></div>
+  <p id="msg"></p>
+  <ul id="playlist"></ul>
+</div>
+
+<audio id="audio"></audio>
+
+<script>
+// ---------- PLAYLIST ----------
+// Option A: set src to an MP3 (local file like "audio/song1.mp3" or a URL).
+// Option B: no src -> a built-in tune is generated, so it ALWAYS works offline.
+const C=261.63, D=293.66, E=329.63, F=349.23, G=392, A=440, B=493.88, C5=523.25;
+const songs = [
+  { title: "Sunrise",    artist: "CodeAlpha Demo", notes: [C,E,G,C5,G,E,D,F], bpm: 110 },
+  { title: "Night Drive", artist: "CodeAlpha Demo", notes: [A,C5,E*2,C5,G,B,D*2,B], bpm: 96 },
+  { title: "Morning Walk", artist: "CodeAlpha Demo", notes: [E,G,A,G,E,D,C,D], bpm: 120 }
+  // Example with a real MP3:
+  // { title: "My Song", artist: "Me", src: "audio/song1.mp3" }
+];
+
+// ---------- Generate a tune as a WAV file in the browser ----------
+function makeTune(notes, bpm, loops = 6) {
+  const rate = 11025, beat = 60 / bpm, data = [];
+  for (let l = 0; l < loops; l++) {
+    for (const f of notes) {
+      const n = Math.floor(rate * beat);
+      for (let i = 0; i < n; i++) {
+        const t = i / rate;
+        const env = Math.min(1, i / 200) * Math.exp(-2.2 * t / beat);
+        const v = 0.5 * Math.sin(2*Math.PI*f*t) + 0.2 * Math.sin(4*Math.PI*f*t);
+        data.push(Math.round(Math.max(-1, Math.min(1, v * env)) * 110) + 128);
+      }
+    }
+  }
+  const buf = new ArrayBuffer(44 + data.length), dv = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => dv.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); dv.setUint32(4, 36 + data.length, true); str(8, "WAVEfmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, rate, true);
+  dv.setUint16(32, 1, true); dv.setUint16(34, 8, true); str(36, "data");
+  dv.setUint32(40, data.length, true);
+  data.forEach((b, i) => dv.setUint8(44 + i, b));
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+
+// ---------- ELEMENTS ----------
+const $ = (id) => document.getElementById(id);
+const audio = $("audio"), progress = $("progress"), volume = $("volume");
+let index = 0, autoplay = true;
+
+const fmt = (s) => isFinite(s) ? Math.floor(s/60) + ":" + String(Math.floor(s%60)).padStart(2, "0") : "0:00";
+
+// ---------- PLAYLIST UI ----------
+songs.forEach((s, i) => {
+  const li = document.createElement("li");
+  li.innerHTML = s.title + "<small>" + s.artist + "</small>";
+  li.onclick = () => { loadSong(i); play(); };
+  $("playlist").appendChild(li);
+});
+
+function loadSong(i) {
+  index = (i + songs.length) % songs.length;
+  const s = songs[index];
+  if (!s.src && !s.url) s.url = makeTune(s.notes, s.bpm);
+  audio.src = s.src || s.url;
+  $("title").textContent = s.title;
+  $("artist").textContent = s.artist;
+  $("msg").textContent = "";
+  progress.value = 0;
+  $("current").textContent = "0:00";
+  $("duration").textContent = "0:00";
+  [...$("playlist").children].forEach((li, n) => li.classList.toggle("active", n === index));
+}
+const play = () => audio.play().catch(() => {});
+
+// ---------- CONTROLS ----------
+$("play").onclick = () => audio.paused ? play() : audio.pause();
+$("next").onclick = () => { loadSong(index + 1); play(); };
+$("prev").onclick = () => {
+  if (audio.currentTime > 3) audio.currentTime = 0;
+  else { loadSong(index - 1); play(); }
+};
+$("auto").onclick = () => { autoplay = !autoplay; $("auto").classList.toggle("on", autoplay); };
+$("mute").onclick = () => { audio.muted = !audio.muted; $("mute").textContent = audio.muted ? "🔇" : "🔊"; };
+volume.oninput = () => { audio.volume = volume.value; audio.muted = false; $("mute").textContent = "🔊"; };
+progress.oninput = () => { if (audio.duration) audio.currentTime = progress.value / 100 * audio.duration; };
+
+// ---------- AUDIO EVENTS ----------
+audio.onplay  = () => { $("play").textContent = "⏸"; $("cover").classList.add("playing"); };
+audio.onpause = () => { $("play").textContent = "▶"; $("cover").classList.remove("playing"); };
+audio.onloadedmetadata = () => { $("duration").textContent = fmt(audio.duration); };
+audio.ontimeupdate = () => {
+  if (!audio.duration) return;
+  progress.value = audio.currentTime / audio.duration * 100;
+  $("current").textContent = fmt(audio.currentTime);
+};
+audio.onended = () => { if (autoplay) { loadSong(index + 1); play(); } };
+audio.onerror = () => { $("msg").textContent = "Could not load this song. Check the file path or your internet."; };
+
+// Keyboard: Space = play/pause, arrows = next/prev
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { e.preventDefault(); $("play").click(); }
+  if (e.code === "ArrowRight") $("next").click();
+  if (e.code === "ArrowLeft") $("prev").click();
+});
+
+audio.volume = volume.value;
+loadSong(0);
+</script>
+</body>
+</html>
